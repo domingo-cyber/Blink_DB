@@ -1,0 +1,17 @@
+BLINK DB Part-A: Storage Engine Design Document
+
+1. Overview:
+   - In-memory key-value store.
+   - Implements SET, GET, DEL.
+   - REPL interface for testing.
+
+2. Data Structures:
+   - Uses std::unordered_map for O(1) access.
+   - Mutex protection (for thread safety, though REPL is single-threaded).
+
+3. Eviction Policy:
+   - (Optional enhancement) Describe potential eviction (e.g., LRU) if capacity is reached.
+   - Trade-offs discussed between simplicity and performance.
+
+4. Workload Optimization:
+   - Optimized for balanced workload (reads and writes are similar).

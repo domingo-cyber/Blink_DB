@@ -1,0 +1,18 @@
+BLINK DB Part-B: TCP Server and RESP-2 Interface Design Document
+
+1. Overview:
+   - Extend storage engine with a network interface.
+   - Implements a TCP server that communicates using Redis RESP-2 protocol.
+   - Handles multiple clients using I/O multiplexing (epoll on Linux / kqueue on macOS/BSD).
+
+2. Connection Management:
+   - Chose epoll/kqueue for scalability (efficiently supports thousands of connections).
+   - Alternatives (e.g., threads) were considered but rejected due to overhead.
+
+3. RESP-2 Protocol:
+   - Implements minimal RESP-2 encoding/decoding to support SET, GET, DEL commands.
+   - Uses simple text parsing for commands.
+
+4. Benchmarking:
+   - Plans to use redis-benchmark to evaluate performance.
+   - Benchmark tests will include 10,000, 100,000, and 1,000,000 concurrent requests over 10, 100, and 1000 connections respectively.
