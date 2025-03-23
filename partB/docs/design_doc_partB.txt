@@ -1,18 +1,94 @@
-BLINK DB Part-B: TCP Server and RESP-2 Interface Design Document
+BlinkDB Part B: Network Infrastructure and RESP-2 Integration Design Document
+===============================================================================
 
-1. Overview:
-   - Extend storage engine with a network interface.
-   - Implements a TCP server that communicates using Redis RESP-2 protocol.
-   - Handles multiple clients using I/O multiplexing (epoll on Linux / kqueue on macOS/BSD).
+1. Overview
+-----------
+BlinkDB Part B extends the in-memory storage engine from Part A by adding a network layer.
+This part implements a TCP server that handles multiple client connections concurrently,
+communicating using the Redis RESP-2 protocol. The server supports basic commands such as
+SET, GET, and DEL, along with minimal support for CONFIG, PING, and INFO commands (required
+by benchmarking tools like redis-benchmark). The design is optimized for both lightweight and
+heavier requests while maintaining high throughput.
 
-2. Connection Management:
-   - Chose epoll/kqueue for scalability (efficiently supports thousands of connections).
-   - Alternatives (e.g., threads) were considered but rejected due to overhead.
+2. Architecture
+---------------
+2.1 TCP Server
+    - The server creates a TCP socket and listens on a configurable port (default 9001).
+    - Sockets are set to nonblocking mode (using O_NONBLOCK) so that no I/O operation blocks the
+      event loop.
+    - The server uses I/O multiplexing:
+        * On Linux, it uses epoll in edge-triggered mode (EPOLLET).
+        * On macOS/BSD, it uses kqueue.
+    - The server supports persistent connections (keep-alive) so that clients can send multiple
+      requests over a single connection, which is critical for high-performance benchmarking.
 
-3. RESP-2 Protocol:
-   - Implements minimal RESP-2 encoding/decoding to support SET, GET, DEL commands.
-   - Uses simple text parsing for commands.
+2.2 RESP-2 Protocol Parsing
+    - The server implements a simple RESP-2 parser that splits the incoming data based on
+      the Redis protocol (using CRLF as a separator) and extracts tokens.
+    - Commands are then identified (e.g., SET, GET, DEL), and parameters are extracted.
+    - Minimal support is provided for CONFIG, PING, and INFO to satisfy redis-benchmark’s
+      initial checks.
 
-4. Benchmarking:
-   - Plans to use redis-benchmark to evaluate performance.
-   - Benchmark tests will include 10,000, 100,000, and 1,000,000 concurrent requests over 10, 100, and 1000 connections respectively.
+2.3 In-Memory Data Store
+    - The data is stored in a simple key-value store implemented as an unordered_map.
+    - This approach provides O(1) average-case performance for CRUD operations.
+    - In this design, the storage is directly embedded in the TCP server for simplicity.
+
+3. Key Design Decisions
+-------------------------
+3.1 I/O Multiplexing
+    - Platform-specific mechanisms are used:
+         * epoll for Linux
+         * kqueue for macOS/BSD
+    - Edge-triggered mode is used to reduce redundant wake-ups and improve performance.
+
+3.2 Nonblocking Sockets & Persistent Connections
+    - All sockets are set to nonblocking mode to avoid blocking the event loop.
+    - The server maintains persistent connections, allowing multiple commands per client,
+      which increases throughput and better simulates real-world usage.
+
+3.3 RESP-2 Parsing and Command Handling
+    - A simple parser is implemented to extract tokens from the RESP-2 formatted input.
+    - The parser supports the basic commands required for the project (SET, GET, DEL) and
+      provides minimal responses for CONFIG, PING, and INFO commands.
+    - This approach minimizes overhead and is sufficient for benchmarking purposes.
+
+3.4 Scalability and Performance
+    - The server is designed to handle thousands of parallel connections.
+    - Through the use of nonblocking I/O and efficient event loop mechanisms (epoll/kqueue),
+      the server achieves high throughput and low latency under light loads.
+    - As the number of parallel clients increases, overall throughput remains high while
+      average per-request latency increases—a typical trade-off in high-concurrency systems.
+    - Future enhancements may include splitting the event loop into multiple worker threads or
+      processes to further utilize multi-core systems and reduce contention.
+
+4. Benchmarking Results
+-------------------------
+- With 10,000 requests and 10 parallel clients:
+    * Throughput: ~135,000 to 166,000 requests per second
+    * Latency: Very low (sub-millisecond for most requests)
+- With 100,000 requests and 100 parallel clients:
+    * Throughput: ~170,000 requests per second
+    * Latency: Moderate increase (median latency around 0.3 ms, p95 around 0.33 ms)
+- With 1,000,000 requests and 1,000 parallel clients:
+    * Throughput: ~170,000 requests per second
+    * Latency: Higher due to concurrency (average latency ranging from 2.9 ms to 25 ms, with higher percentiles showing increased delays)
+
+These results confirm that while increasing the number of parallel connections can boost overall throughput,
+individual request latency will naturally increase. The design achieves a balanced performance that scales
+well under heavy concurrent loads.
+
+5. Future Enhancements
+-------------------------
+- Extend RESP-2 protocol support to handle more Redis commands.
+- Implement multi-threaded event loops or a thread pool to further improve scalability on multi-core systems.
+- Enhance the storage engine with caching and data eviction policies when memory is constrained.
+- Integrate detailed logging and monitoring to better diagnose performance bottlenecks in production environments.
+
+6. Conclusion
+--------------
+BlinkDB Part B leverages efficient nonblocking I/O, platform-specific event multiplexing, and a simple RESP-2 parser
+to create a scalable and high-performance in-memory database server. This design meets the requirements for high throughput
+and low latency under various workloads and serves as a solid foundation for future enhancements.
+
+===============================================================================
