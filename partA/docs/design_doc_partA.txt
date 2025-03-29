@@ -17,9 +17,8 @@ challenge of memory capacity by including provisions for data eviction and resto
 2.1 Storage Engine
     - Implemented as a C++ class that encapsulates an unordered_map.
     - Provides O(1) average-case performance for SET, GET, and DEL operations.
-    - A mutex protects the unordered_map for thread safety (primarily for potential future 
-      multi-threaded enhancements). In the current REPL implementation, operations are 
-      performed sequentially.
+    - Uses an LRU (Least Recently Used) mechanism to manage memory efficiently.
+    - Designed to be extended with future multi-threading capabilities.
 
 2.2 REPL Interface
     - A command-line interface that reads user commands, passes them to the storage engine, 
@@ -33,92 +32,74 @@ by considering the following strategies:
 
 3.1 Data Eviction Policy:
     - **Least Recently Used (LRU):**
-        • The design can be extended with an LRU cache mechanism.
-        • Each key is tagged with its last access time.
-        • When memory reaches a threshold, the least recently accessed keys are flushed (evicted) 
-          to free up space.
-    - **Periodic Flushing:**
-        • Alternatively, the system can flush outdated data periodically based on a time-to-live (TTL) 
-          mechanism.
-        • This involves marking data with an expiration timestamp and periodically purging expired 
-          entries.
+        • The design includes an LRU cache mechanism.
+        • Each key is stored in an ordered list (linked list).
+        • When memory reaches the threshold, the least recently accessed keys are evicted.
     - **Trade-Offs:**
-        • LRU provides high hit-rates for frequently accessed data but introduces additional overhead 
-          for tracking access times.
-        • TTL-based flushing is simpler but might evict data that is still frequently used if the TTL is 
-          set too aggressively.
+        • LRU provides high hit-rates for frequently accessed data but introduces additional overhead.
+        • TTL-based flushing (not implemented yet) could provide automatic cleanup of expired keys.
 
 3.2 Retrieval Strategy:
     - **Restoration of Evicted Data:**
-        • In some scenarios, evicted data may need to be restored efficiently.
-        • One approach is to maintain a secondary, slower storage (or write-ahead log) that retains the 
-          flushed data.
-        • Upon access, if a key is not found in memory, the system can check this secondary store 
-          and reload the data if necessary.
+        • Future implementations could include a write-ahead log or secondary storage for persistence.
     - **Cache Warm-Up:**
-        • Another strategy is to cache the most frequently accessed keys in memory and pre-load them 
-          during startup or at scheduled intervals.
+        • Frequently accessed keys could be preloaded at startup.
 
 4. Workload Optimization
 --------------------------
-The design must be optimized for a particular workload. For BlinkDB Part A, we choose to optimize for 
-a "balanced" workload where read, write, and delete operations are all significant. The rationale is:
+The design must be optimized for a particular workload. BlinkDB Part A is optimized for a 
+"balanced" workload where read, write, and delete operations are equally important.
 
-    • Balanced workloads are common in agile development systems and content management systems,
-      which are among the target applications.
-    • Optimizing solely for read-heavy might neglect the performance of writes and deletes,
-      whereas write-heavy optimization might make read operations inefficient.
-    • A balanced design ensures that SET, GET, and DEL operations are all fast and that no single 
-      operation becomes a performance bottleneck.
+    • Balanced workloads are common in agile development systems and content management systems.
+    • Optimizing solely for read-heavy might neglect write performance.
+    • A balanced design ensures that SET, GET, and DEL operations are all efficient.
 
 5. Data Structures and Specific Optimizations
 -----------------------------------------------
 5.1 Data Structures:
     - **Primary Data Structure:**  
-      • C++ std::unordered_map is used to store key-value pairs. This choice offers constant time 
-        (O(1)) complexity for lookup, insertion, and deletion.
-    - **Optional Extensions:**  
-      • For scaling beyond available memory or for persistence, consider using Log-Structured Merge 
-        (LSM) trees or B-Trees in future iterations.
+      • Uses C++ std::unordered_map for key-value storage.  
+      • Provides O(1) lookup, insertion, and deletion.
+    - **LRU Mechanism:**  
+      • A **doubly linked list** (std::list) tracks the order of key usage.  
+      • An **unordered_map** stores iterators to the list for quick access.
 
 5.2 Specific Optimizations:
-    - **Minimize Overhead:**  
-      • The REPL is kept simple, and operations are implemented with minimal overhead.
-    - **Memory Management:**  
-      • The design leaves room for implementing memory thresholds and automatic eviction using LRU 
-        or TTL-based policies.
-    - **Future Multi-threading:**  
-      • Though Part A is implemented as a single-threaded REPL, the storage engine is designed in a 
-        modular way so that it can later be integrated into a multi-threaded or distributed system without 
-        major redesign.
+    - **Minimized Overhead:** The REPL is simple, ensuring low processing overhead.
+    - **Efficient Memory Management:** LRU handles automatic eviction when capacity is reached.
+    - **Modular Design:** The storage engine can later support **multi-threading** or **persistence** 
+      without major redesign.
 
 6. Performance Evaluation and Benchmarking
 --------------------------------------------
 - The evaluation will use benchmark files containing a mixed workload of SET, GET, and DEL commands.
-- The goal is to ensure that the storage engine performs well across all operations:
+- **Performance Goals:**
     • SET (inserts) should be fast to support write operations.
-    • GET (reads) must return data quickly for a read-heavy workload.
-    • DEL (deletes) should remove data efficiently.
-- Preliminary tests show sub-millisecond latencies for individual operations.
-- When memory thresholds are reached, the performance impact of eviction and restoration will be 
-  evaluated, and tuning parameters (e.g., TTL values, cache size) will be adjusted accordingly.
+    • GET (reads) must return data quickly.
+    • DEL (deletes) should be efficient.
+- Preliminary tests show **sub-millisecond latencies** for individual operations.
+- **Future Optimization:** If eviction impacts performance, TTL values and cache sizes will be tuned.
 
 7. Trade-Offs and Future Considerations
 -----------------------------------------
 - **Eviction Overhead vs. Data Freshness:**  
-    • Implementing LRU adds overhead to every GET/SET, but it ensures that frequently accessed data is 
-      retained. A TTL-based approach is simpler but may flush data too aggressively.
+    • LRU introduces overhead but ensures frequently accessed data is retained.  
+    • A TTL-based approach could be simpler but might remove useful data.
 - **In-Memory vs. Persistent Storage:**  
-    • An in-memory store is fast but volatile. A future enhancement is to integrate a persistence layer 
-      to recover data after a restart.
-- **Modularity for Scalability:**  
-    • The engine is designed to be modular so that it can later support distributed architectures, 
-      advanced caching strategies, and multi-threaded processing.
+    • The current implementation is fully in-memory.  
+    • Future work may integrate a persistent store (e.g., database backup, disk storage).
+- **Scalability Considerations:**  
+    • Future versions may include **multi-threading** and **distributed storage** for large-scale 
+      deployments.
 
 8. Conclusion
 -------------
-BlinkDB Part A provides a high-performance in-memory key-value storage engine with a modular and clean design.  
-It is optimized for balanced workloads by ensuring fast SET, GET, and DEL operations. Future enhancements 
-will include robust eviction and restoration mechanisms to handle memory limitations and improve scalability.
+BlinkDB Part A provides a high-performance in-memory key-value storage engine with a clean, 
+modular design. It is optimized for **balanced workloads**, ensuring fast SET, GET, and DEL 
+operations.
 
-==============================================================================
+### Future Enhancements:
+- Implement **persistent storage** for data recovery after crashes.
+- Add **multi-threading** to handle concurrent requests.
+- Optimize **eviction strategies** to balance memory usage and performance.
+

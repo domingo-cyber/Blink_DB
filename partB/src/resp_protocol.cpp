@@ -23,7 +23,7 @@ std::vector<std::string> RESPProtocol::decodeArray(const std::string& resp) {
     std::string line;
     
     while (std::getline(stream, line)) {
-        if (line.empty() || line[0] == '*') continue; // Ignore array length line
+        if (line.empty() || line[0] == '*') continue;
         result.push_back(line);
     }
     return result;

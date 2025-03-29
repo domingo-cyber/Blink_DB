@@ -7,13 +7,16 @@ TARGET = blinkdb_server
 SRCS = main.cpp tcp_server.cpp storage_engine.cpp resp_protocol.cpp
 OBJS = $(SRCS:.cpp=.o)
 
-all: $(TARGET)
+all: $(TARGET) run
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+run: $(TARGET)
+	./$(TARGET)
 
 clean:
 	rm -f $(TARGET) $(OBJS)

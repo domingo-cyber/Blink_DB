@@ -12,20 +12,17 @@
     #include <sys/event.h>
 #endif
 
-#define MAX_EVENTS 1024  // Max concurrent connections
+#define MAX_EVENTS 1024
 
-TCPServer::TCPServer(int port) {
+TCPServer::TCPServer(int port, size_t storage_capacity) : storage(storage_capacity) {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
         perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
-    // Set socket options (reuse address)
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    // Set non-blocking mode
     fcntl(server_fd, F_SETFL, O_NONBLOCK);
 
     address.sin_family = AF_INET;
@@ -58,13 +55,13 @@ TCPServer::TCPServer(int port) {
     }
 #endif
 
-    add_to_event_loop(server_fd);  // Add server socket to event loop
+    add_to_event_loop(server_fd);
 }
 
 void TCPServer::add_to_event_loop(int fd) {
 #ifdef __linux__
     epoll_event event;
-    event.events = EPOLLIN | EPOLLET;  // Edge-triggered mode
+    event.events = EPOLLIN | EPOLLET;
     event.data.fd = fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event);
 #elif __APPLE__
@@ -98,29 +95,12 @@ void TCPServer::run() {
 #elif __APPLE__
             int fd = (int)events[i].ident;
 #endif
-
             if (fd == server_fd) {
                 accept_new_connection();
             } else {
                 handle_client(fd);
             }
         }
-    }
-}
-
-void TCPServer::accept_new_connection() {
-    while (true) {
-        int client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd == -1) {
-            if (errno != EWOULDBLOCK && errno != EAGAIN) {
-                perror("Accept failed");
-            }
-            break;
-        }
-
-        // Set non-blocking mode
-        fcntl(client_fd, F_SETFL, O_NONBLOCK);
-        add_to_event_loop(client_fd);
     }
 }
 
@@ -133,77 +113,74 @@ void TCPServer::handle_client(int client_fd) {
         return;
     }
 
-    buffer[bytes_read] = '\0';  // Null-terminate input
+    buffer[bytes_read] = '\0';
     std::string request(buffer);
     std::string response = process_command(request);
-    
+
     send(client_fd, response.c_str(), response.size(), 0);
 }
 
 std::string TCPServer::process_command(const std::string &request) {
     std::vector<std::string> tokens;
     size_t pos = 0, next;
-    
+
     // Split request into tokens
     while ((next = request.find("\r\n", pos)) != std::string::npos) {
         tokens.push_back(request.substr(pos, next - pos));
         pos = next + 2;
     }
 
-    // Ensure at least one command is present
-    if (tokens.empty()) return "-ERR Empty command\r\n";
+    if (tokens.empty() || tokens[0].empty() || tokens[0][0] != '*')
+        return "-ERR Invalid RESP request\r\n";
 
-    // Validate RESP-2 format (starts with '*')
-    if (tokens[0].empty() || tokens[0][0] != '*') return "-ERR Invalid RESP request\r\n";
-
-    // Get number of arguments
     int num_args = std::stoi(tokens[0].substr(1));
-    if (static_cast<int>(tokens.size()) < num_args * 2 + 1) 
-    return "-ERR Malformed request\r\n";
+    if (static_cast<int>(tokens.size()) < num_args * 2 + 1)
+        return "-ERR Malformed request\r\n";
 
-    // Extract command name (uppercase)
     std::string command = tokens[2];
     std::transform(command.begin(), command.end(), command.begin(), ::toupper);
 
-    // Handle SET command
     if (command == "SET" && num_args >= 3) {
-        database[tokens[4]] = tokens[6];  // Key-value pair
+        std::string key = tokens[4];
+        std::string value = tokens[6];
+        storage.set(key, value);  // Use the storage engine
         return "+OK\r\n";
     }
 
-    // Handle GET command
     if (command == "GET" && num_args >= 2) {
-        if (database.find(tokens[4]) != database.end()) {
-            std::string value = database[tokens[4]];
-            return "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n";
-        }
-        return "$-1\r\n";  // Key not found
+        std::string key = tokens[4];
+        std::string value = storage.get(key);
+        if (value == "NULL") return "$-1\r\n";  // Key not found
+        return "$" + std::to_string(value.size()) + "\r\n" + value + "\r\n";
     }
 
-    // Handle DEL command
     if (command == "DEL" && num_args >= 2) {
-        int deleted = database.erase(tokens[4]);
-        return ":" + std::to_string(deleted) + "\r\n";
+        std::string key = tokens[4];
+        storage.del(key);
+        return ":1\r\n";  // Redis returns 1 for successful delete
     }
 
-    // Handle PING command (for redis-benchmark)
-    if (command == "PING") {
-        return "+PONG\r\n";
-    }
+    if (command == "PING") return "+PONG\r\n";
 
-    // Handle INFO command (for redis-benchmark)
-    if (command == "INFO") {
-        return "$5\r\nredis\r\n";
-    }
+    if (command == "INFO") return "$5\r\nredis\r\n";
 
-    // Handle CONFIG command (for redis-benchmark)
-    if (command == "CONFIG") {
-        return "$-1\r\n";  // Return null response (not supported)
-    }
+    if (command == "CONFIG") return "$-1\r\n";  // Fake response to prevent errors
 
     return "-ERR Unknown command\r\n";
 }
+void TCPServer::accept_new_connection() {
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
 
+    if (client_fd == -1) {
+        perror("Accept failed");
+        return;
+    }
+
+    fcntl(client_fd, F_SETFL, O_NONBLOCK);
+    add_to_event_loop(client_fd);
+}
 
 TCPServer::~TCPServer() {
     close(server_fd);

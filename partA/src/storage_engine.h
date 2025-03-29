@@ -1,42 +1,24 @@
-/**
- * @file storage_engine.h
- * @brief Declaration of StorageEngine class for in-memory key-value storage.
- */
 #ifndef STORAGE_ENGINE_H
 #define STORAGE_ENGINE_H
 
 #include <unordered_map>
+#include <list>
 #include <string>
-#include <mutex>
 
-/**
- * @brief A simple key-value storage engine.
- */
 class StorageEngine {
 private:
-    std::unordered_map<std::string, std::string> db;
-    std::mutex db_mutex;  ///< Mutex for thread-safety (optional for single-threaded REPL).
+    std::unordered_map<std::string, std::string> kv_store;
+    std::list<std::string> lru_list;
+    std::unordered_map<std::string, std::list<std::string>::iterator> lru_map;
+    size_t capacity;
+
+    void evictIfNeeded();
 
 public:
-    /**
-     * @brief Sets the value for a given key.
-     * @param key The key.
-     * @param value The value.
-     */
-    void set(const std::string &key, const std::string &value);
-
-    /**
-     * @brief Gets the value associated with a key.
-     * @param key The key.
-     * @return The value, or "NULL" if not found.
-     */
-    std::string get(const std::string &key);
-
-    /**
-     * @brief Deletes a key-value pair.
-     * @param key The key.
-     */
-    void del(const std::string &key);
+    StorageEngine(size_t cap = 1000);
+    void set(const std::string& key, const std::string& value);
+    std::string get(const std::string& key);
+    void del(const std::string& key);
 };
 
 #endif

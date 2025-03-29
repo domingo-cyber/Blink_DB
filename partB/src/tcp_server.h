@@ -2,8 +2,8 @@
 #define TCP_SERVER_H
 
 #include <netinet/in.h>
-#include <unordered_map>
 #include <string>
+#include "storage_engine.h"
 
 #ifdef __linux__
     #include <sys/epoll.h>
@@ -15,6 +15,7 @@ class TCPServer {
 private:
     int server_fd;
     struct sockaddr_in address;
+    StorageEngine storage;
 
 #ifdef __linux__
     int epoll_fd;
@@ -22,15 +23,13 @@ private:
     int kqueue_fd;
 #endif
 
-    std::unordered_map<std::string, std::string> database;  // Simple key-value store
-
     void add_to_event_loop(int fd);
     void accept_new_connection();
     void handle_client(int client_fd);
     std::string process_command(const std::string &request);
 
 public:
-    explicit TCPServer(int port);
+    explicit TCPServer(int port, size_t storage_capacity = 1000);
     ~TCPServer();
     void run();
 };
